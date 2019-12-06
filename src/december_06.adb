@@ -46,7 +46,8 @@ procedure December_06 is
       while not End_Of_File (Input_File) loop
          Get (Input_File, Current_Pair.Orbits_Around);
          Get (Input_File, Right_Bracket);
-         Assert (Right_Bracket = ')');
+         Assert (Right_Bracket = ')', "Expected ) and found '" &
+                   Right_Bracket & "'");
          Get (Input_File, Current_Pair.Satellite);
          Insert (Orbit_Map, Current_Pair.Satellite, Current_Pair);
       end loop; -- not End_Of_File (Input_File)
@@ -112,7 +113,9 @@ procedure December_06 is
       for I in Iterate (Start_List) loop
          for J in Iterate (End_List) loop
             if Element (I) = Element (J) then
+               -- Common Element found
                return To_Index (I) + To_Index (J);
+               -- Index represents transfers start of list
             end if; -- Element (I) = Element (J)
          end loop; -- J in Iterate (End_List)
       end loop; -- I in Iterate (Start_List)
@@ -128,6 +131,8 @@ begin -- December_06
    Read_Input (Orbit_Map);
    Universe_Centre := Find_Centre (Orbit_Map);
    Put_Line ("Centre of Universe: " & Universe_Centre);
+   -- We were given the cemtre; however this verifies that the data was read
+   -- correctly.
    Put_Line ("Total Orbits:" &
                Natural'Image (Count_Orbits (Orbit_Map, Universe_Centre)));
    Build_Transfer_List (Orbit_Map, "YOU", Universe_Centre, You_List);
