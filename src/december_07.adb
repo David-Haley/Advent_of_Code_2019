@@ -5,7 +5,7 @@ with Ada.Containers.Vectors;
 
 procedure December_07 is
 
-   subtype Program_Store_Elements is Long_Long_Integer;
+   subtype Program_Store_Elements is Integer;
 
    package Program_Store_IO is new
      Ada.Text_IO.Integer_IO (Program_Store_Elements);
@@ -19,7 +19,7 @@ procedure December_07 is
                              Element_Type => Program_Store_Elements);
    use Program_Stores;
 
-   subtype Address_Modes is Long_Long_Integer range 0 .. 1;
+   subtype Address_Modes is Integer range 0 .. 1;
 
    subtype Phases_1 is Program_Store_Elements range 0 .. 4;
    subtype Phases_2 is Program_Store_Elements range 5 .. 9;
@@ -44,16 +44,6 @@ procedure December_07 is
       Close (Input_File);
    end Read_Input;
 
-   procedure Dump (Program_Store : in Program_Stores.Vector) is
-
-   begin -- Dump
-      for I in Iterate (Program_Store) loop
-         Put (Program_Store (I), 0);
-         Put (',');
-      end loop; -- I in Iterate (Program_Store)
-      New_Line;
-   end Dump;
-
    procedure Run_Code_1 (Program_Store_Archive : in Program_Stores.Vector;
                          Phase : in Phases_1;
                          Amp_Input : in Program_Store_Elements;
@@ -69,7 +59,7 @@ procedure December_07 is
                              return Program_Store_Elements is
       begin -- Read_Operand
          if Address_Mode = 0 then
-            return Program_Store (Addresses (Element (Program_Store, Address)));
+            return Program_Store (Program_Store (Address));
             -- mode 0 direct addressing
          else
             return Program_Store (Address);
@@ -101,11 +91,11 @@ procedure December_07 is
          Instruction_Length := 4; -- default instruction length
          case Program_Store (Program_Counter) mod Op_Code_Mod is
             when 1 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) +
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 2 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) *
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 3 =>
@@ -119,7 +109,7 @@ procedure December_07 is
                   when others =>
                      Assert (False, "Too many input instructions processed");
                end case; -- Input_Counter
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Input_Data;
                Input_Counter := Input_Counter + 1;
             when 4 =>
@@ -128,36 +118,30 @@ procedure December_07 is
             when 5 =>
                if Read_Operand (Operand_1, Operand_1_Mode) /= 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) /= 0
             when 6 =>
                if Read_Operand (Operand_1, Operand_1_Mode) = 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) = 0
             when 7 =>
                if Read_Operand (Operand_1, Operand_1_Mode) <
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- less than test
             when 8 =>
                if Read_Operand (Operand_1, Operand_1_Mode) =
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- equal test
             when 99 =>
                Run := False;
@@ -177,7 +161,7 @@ procedure December_07 is
    end Run_Code_1;
 
    procedure Find_Solution_1 (Program_Store_Archive : in Program_Stores.Vector;
-                            Thrust : out Program_Store_Elements) is
+                              Thrust : out Program_Store_Elements) is
 
       A_to_B, B_to_C, C_to_D, D_to_E, E_Out : Program_Store_Elements;
 
@@ -198,7 +182,7 @@ procedure December_07 is
                            for E in Phases_1 loop
                               if A /= E and B /= E and C /= E and D /= E then
                                  Run_Code_1 (Program_Store_Archive, E, D_to_E,
-                                           E_Out);
+                                             E_Out);
                                  if E_Out > Thrust then
                                     Thrust := E_Out;
                                  end if; -- E_Out > Thrust
@@ -217,6 +201,21 @@ procedure December_07 is
                          Phase_A, Phase_B, Phase_C, Phase_D, Phase_E
                          : in Phases_2;
                          Thrust : out Program_Store_Elements) is
+
+      -- Runs seperate tasks for each amplifier. The output of each amplier is
+      -- transferred to the next by calling the appropriate entry, thus ensuring
+      -- that the transfer is synchronous with the virtual machine execution.
+      -- Amplifiers A to D are similar; however amplifier E has asignificant
+      -- differences. Task execution is initiated by the initial value being
+      -- sent to Amp_E by calling Run_Code_2 calling its entry. Execution is
+      -- sustained by Amp_E sending its output (feedback) to Amp_A. Amp_E
+      -- transfers its final output to Run_Code_2. Note Run_Code_2 will not
+      -- return until all amplifiers terminate. This solution produces the
+      -- correct resuts; however it is not particularly elegant, the tasks could
+      -- be generic instantiations and it may be possible to avoid the exception
+      -- handeler in Amp_E which does nothing other than allowing Amp_E to
+      -- terminate normally whewn it attemps to send output to Amp_A after Amp_A
+      -- has run to completion.
 
       Op_Code_Mod : constant Program_Store_Elements := 100;
       Mode_Mod : constant Program_Store_Elements := 10;
@@ -248,11 +247,10 @@ procedure December_07 is
 
          function Read_Operand (Address : in Addresses;
                                 Address_Mode : in Address_Modes)
-                             return Program_Store_Elements is
+                                return Program_Store_Elements is
          begin -- Read_Operand
             if Address_Mode = 0 then
-               return
-                 Program_Store (Addresses (Element (Program_Store, Address)));
+               return Program_Store (Program_Store (Address));
                -- mode 0 direct addressing
             else
                return Program_Store (Address);
@@ -266,7 +264,7 @@ procedure December_07 is
          Operand_1, Operand_2, Result : Addresses;
          Operand_1_Mode, Operand_2_Mode : Address_Modes;
          Input_Data : Program_Store_Elements;
-         Run, Phase_Input, First_Input : Boolean := True;
+         Run, Phase_Input : Boolean := True;
          Jump : Boolean;
 
       begin -- Amp_A
@@ -283,11 +281,11 @@ procedure December_07 is
             Instruction_Length := 4; -- default instruction length
             case Program_Store (Program_Counter) mod Op_Code_Mod is
             when 1 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) +
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 2 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) *
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 3 =>
@@ -296,52 +294,42 @@ procedure December_07 is
                if Phase_Input then
                   Input_Data := Phase_A;
                   Phase_Input := False;
-               elsif First_Input then
-                  Input_Data := 0;
-                  First_Input := False;
                else
                   accept Get_Input (Amp_Input : in Program_Store_Elements) do
                      Input_Data := Amp_Input;
                   end Get_Input;
                end if; -- Phase_Input
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
-                 Input_Data;
+               Program_Store (Program_Store (Result)) := Input_Data;
             when 4 =>
                Instruction_Length := 2;
                Amp_B.Get_Input (Read_Operand (Operand_1, Operand_1_Mode));
             when 5 =>
                if Read_Operand (Operand_1, Operand_1_Mode) /= 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) /= 0
             when 6 =>
                if Read_Operand (Operand_1, Operand_1_Mode) = 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) = 0
             when 7 =>
                if Read_Operand (Operand_1, Operand_1_Mode) <
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- less than test
             when 8 =>
                if Read_Operand (Operand_1, Operand_1_Mode) =
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- equal test
             when 99 =>
                Run := False;
@@ -365,11 +353,10 @@ procedure December_07 is
 
          function Read_Operand (Address : in Addresses;
                                 Address_Mode : in Address_Modes)
-                             return Program_Store_Elements is
+                                return Program_Store_Elements is
          begin -- Read_Operand
             if Address_Mode = 0 then
-               return
-                 Program_Store (Addresses (Element (Program_Store, Address)));
+               return Program_Store (Program_Store (Address));
                -- mode 0 direct addressing
             else
                return Program_Store (Address);
@@ -400,11 +387,11 @@ procedure December_07 is
             Instruction_Length := 4; -- default instruction length
             case Program_Store (Program_Counter) mod Op_Code_Mod is
             when 1 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) +
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 2 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) *
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 3 =>
@@ -418,44 +405,37 @@ procedure December_07 is
                      Input_Data := Amp_Input;
                   end Get_Input;
                end if; -- Phase_input
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
-                 Input_Data;
+               Program_Store (Program_Store (Result)) := Input_Data;
             when 4 =>
                Instruction_Length := 2;
                Amp_C.Get_Input (Read_Operand (Operand_1, Operand_1_Mode));
             when 5 =>
                if Read_Operand (Operand_1, Operand_1_Mode) /= 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) /= 0
             when 6 =>
                if Read_Operand (Operand_1, Operand_1_Mode) = 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) = 0
             when 7 =>
                if Read_Operand (Operand_1, Operand_1_Mode) <
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- less than test
             when 8 =>
                if Read_Operand (Operand_1, Operand_1_Mode) =
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- equal test
             when 99 =>
                Run := False;
@@ -479,11 +459,10 @@ procedure December_07 is
 
          function Read_Operand (Address : in Addresses;
                                 Address_Mode : in Address_Modes)
-                             return Program_Store_Elements is
+                                return Program_Store_Elements is
          begin -- Read_Operand
             if Address_Mode = 0 then
-               return
-                 Program_Store (Addresses (Element (Program_Store, Address)));
+               return Program_Store (Program_Store (Address));
                -- mode 0 direct addressing
             else
                return Program_Store (Address);
@@ -514,11 +493,11 @@ procedure December_07 is
             Instruction_Length := 4; -- default instruction length
             case Program_Store (Program_Counter) mod Op_Code_Mod is
             when 1 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) +
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 2 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) *
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 3 =>
@@ -532,44 +511,37 @@ procedure December_07 is
                      Input_Data := Amp_Input;
                   end Get_Input;
                end if; -- Phase_Input
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
-                 Input_Data;
+               Program_Store (Program_Store (Result)) := Input_Data;
             when 4 =>
                Instruction_Length := 2;
                Amp_D.Get_Input (Read_Operand (Operand_1, Operand_1_Mode));
             when 5 =>
                if Read_Operand (Operand_1, Operand_1_Mode) /= 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) /= 0
             when 6 =>
                if Read_Operand (Operand_1, Operand_1_Mode) = 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) = 0
             when 7 =>
                if Read_Operand (Operand_1, Operand_1_Mode) <
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- less than test
             when 8 =>
                if Read_Operand (Operand_1, Operand_1_Mode) =
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- equal test
             when 99 =>
                Run := False;
@@ -593,11 +565,10 @@ procedure December_07 is
 
          function Read_Operand (Address : in Addresses;
                                 Address_Mode : in Address_Modes)
-                             return Program_Store_Elements is
+                                return Program_Store_Elements is
          begin -- Read_Operand
             if Address_Mode = 0 then
-               return
-                 Program_Store (Addresses (Element (Program_Store, Address)));
+               return Program_Store (Program_Store (Address));
                -- mode 0 direct addressing
             else
                return Program_Store (Address);
@@ -628,11 +599,11 @@ procedure December_07 is
             Instruction_Length := 4; -- default instruction length
             case Program_Store (Program_Counter) mod Op_Code_Mod is
             when 1 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) +
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 2 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) *
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 3 =>
@@ -646,44 +617,37 @@ procedure December_07 is
                      Input_Data := Amp_Input;
                   end Get_Input;
                end if; -- Phase_Input
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
-                 Input_Data;
+               Program_Store (Program_Store (Result)) := Input_Data;
             when 4 =>
                Instruction_Length := 2;
                Amp_E.Get_Input (Read_Operand (Operand_1, Operand_1_Mode));
             when 5 =>
                if Read_Operand (Operand_1, Operand_1_Mode) /= 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) /= 0
             when 6 =>
                if Read_Operand (Operand_1, Operand_1_Mode) = 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target :=Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) = 0
             when 7 =>
                if Read_Operand (Operand_1, Operand_1_Mode) <
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- less than test
             when 8 =>
                if Read_Operand (Operand_1, Operand_1_Mode) =
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- equal test
             when 99 =>
                Run := False;
@@ -707,11 +671,10 @@ procedure December_07 is
 
          function Read_Operand (Address : in Addresses;
                                 Address_Mode : in Address_Modes)
-                             return Program_Store_Elements is
+                                return Program_Store_Elements is
          begin -- Read_Operand
             if Address_Mode = 0 then
-               return
-                 Program_Store (Addresses (Element (Program_Store, Address)));
+               return Program_Store (Program_Store (Address));
                -- mode 0 direct addressing
             else
                return Program_Store (Address);
@@ -743,11 +706,11 @@ procedure December_07 is
             Instruction_Length := 4; -- default instruction length
             case Program_Store (Program_Counter) mod Op_Code_Mod is
             when 1 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) +
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 2 =>
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
+               Program_Store (Program_Store (Result)) :=
                  Read_Operand (Operand_1, Operand_1_Mode) *
                  Read_Operand (Operand_2, Operand_2_Mode);
             when 3 =>
@@ -761,50 +724,43 @@ procedure December_07 is
                      Input_Data := Amp_Input;
                   end Get_Input;
                end if; -- Phase_Input
-               Program_Store (Addresses (Element (Program_Store, Result))) :=
-                 Input_Data;
+               Program_Store (Program_Store (Result)) := Input_Data;
             when 4 =>
                Instruction_Length := 2;
-               begin
+               begin -- Handles exception when Amp_A has run to completion
                   Amp_A.Get_Input (Read_Operand (Operand_1, Operand_1_Mode));
                exception
-                  when others =>
-                     null;
-               end;
+                  when Tasking_Error =>
+                     null; -- Exception is ignored!!!!
+               end; -- Handles exception when Amp_A has run to completion
                E_Out := Read_Operand (Operand_1, Operand_1_Mode);
             when 5 =>
                if Read_Operand (Operand_1, Operand_1_Mode) /= 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) /= 0
             when 6 =>
                if Read_Operand (Operand_1, Operand_1_Mode) = 0 then
                   Jump := True;
-                  Jump_Target :=
-                    Addresses (Read_Operand (Operand_2, Operand_2_Mode));
+                  Jump_Target := Read_Operand (Operand_2, Operand_2_Mode);
                else
                   Instruction_Length := 3;
                end if; -- Read_Operand (Operand_1, Operand_1_Mode) = 0
             when 7 =>
                if Read_Operand (Operand_1, Operand_1_Mode) <
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- less than test
             when 8 =>
                if Read_Operand (Operand_1, Operand_1_Mode) =
                  Read_Operand (Operand_2, Operand_2_Mode) then
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 1;
+                  Program_Store (Program_Store (Result)) := 1;
                else
-                  Program_Store (Addresses (Element (Program_Store, Result)))
-                    := 0;
+                  Program_Store (Program_Store (Result)) := 0;
                end if; -- equal test
             when 99 =>
                Run := False;
@@ -826,6 +782,7 @@ procedure December_07 is
       end Amp_E;
 
    begin -- Run_Code_2
+      Amp_A.Get_Input (0); -- Initial input to Amp_A
       Amp_E.Final_Result (Thrust);
    end Run_Code_2;
 
