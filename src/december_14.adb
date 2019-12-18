@@ -14,9 +14,12 @@ procedure December_14 is
    Ore : constant Unbounded_String := To_Unbounded_String ("ORE");
    Fuel : constant Unbounded_String := To_Unbounded_String ("FUEL");
 
+   subtype Long_Natural is Long_Long_Integer range 0 .. Long_Long_Integer'Last;
+   subtype Long_Positive is Long_Long_Integer range 1 .. Long_Long_Integer'Last;
+
    type Reagents is record
       Name : Unbounded_String;
-      Quantity : Positive;
+      Quantity : Long_Positive;
    end record; -- Reagents
 
    package Input_Reagents is new Ada.Containers.Vectors (Positive, Reagents);
@@ -32,17 +35,16 @@ procedure December_14 is
    use Reactions;
 
    type Pool_Elements is record
-      Name : Unbounded_String := Null_Unbounded_String;
-      Required, Made : Natural := 0;
-      Modularity : Positive := 1;
+      Required, Made : Long_Natural := 0;
+      Modularity : Long_Positive := 1;
    end record; -- Pool_Elements
 
    package Reagent_Pools is new Ada.Containers.Ordered_Maps (Unbounded_String,
                                                              Pool_Elements);
    use Reagent_Pools;
 
-   package Positive_IO is new Ada.Text_IO.Integer_IO (Positive);
-   use Positive_IO;
+   package Long_Positive_IO is new Ada.Text_IO.Integer_IO (Long_Positive);
+   use Long_Positive_IO;
 
    procedure Read_Input (Reaction : out Reactions.map) is
 
@@ -65,7 +67,7 @@ procedure December_14 is
          Start_At := 1;
          while not End_of_Equation loop
             Find_Token (Text, Decimal_Digit_Set, Start_At, Inside, First, Last);
-            Current.Quantity := Positive'Value (Slice (Text, First, Last));
+            Current.Quantity := Long_Positive'Value (Slice (Text, First, Last));
             Start_At := Last + 1;
             Find_Token (Text, Delimiter_Set, Start_At, Outside, First, Last);
             Current.Name := Unbounded_Slice (Text, First, Last);
@@ -76,7 +78,7 @@ procedure December_14 is
                Find_Token (Text, Decimal_Digit_Set, Start_At, Inside, First,
                            Last);
                Reaction_Element.Product.Quantity :=
-                 Positive'Value (Slice (Text, First, Last));
+                 Long_Positive'Value (Slice (Text, First, Last));
                Start_At := Last + 1;
                Find_Token (Text, Delimiter_Set, Start_At, Outside, First, Last);
                Reaction_Element.Product.Name :=
@@ -96,19 +98,17 @@ procedure December_14 is
 
    begin -- Create
       Reagent_Pool := Reagent_Pools.Empty_Map;
-      Pool_Element.Name := Ore;
       Include (Reagent_Pool, Ore, Pool_Element);
       for I in iterate (Reaction) loop
-         Pool_Element.Name := Key (I);
          Pool_Element.Modularity := Reaction (I).Product.Quantity;
          Include (Reagent_Pool, Key (I), Pool_Element);
       end loop; -- I in iterate (Reaction)
    end Create;
 
-   function Ceiling (Required : Natural; Modularity : Positive)
-                       return Natural is
+   function Ceiling (Required : Long_Natural; Modularity : Long_Positive)
+                       return Long_Natural is
 
-      Result : Natural := Required / Modularity;
+      Result : Long_Natural := Required / Modularity;
 
    begin -- Ceiling
       if Required > Result * Modularity then
@@ -120,15 +120,15 @@ procedure December_14 is
    procedure Manufacture (Reaction : in Reactions.Map;
                           Reagent_Pool : in out Reagent_Pools.Map;
                           To_Make : in Unbounded_String;
-                          Units : in Positive) is
+                          Units : in Long_Positive) is
 
       Pool_C : Reagent_Pools.Cursor;
       Reaction_C : Reactions.Cursor;
-      Product_Factor : Positive;
+      Product_Factor : Long_Positive;
 
    begin -- Manufacture
+      Pool_C := Find (Reagent_Pool, To_Make);
       if To_Make /= Ore then
-         Pool_C := Find (Reagent_Pool, To_Make);
          Reaction_C := Find (Reaction, To_Make);
          if Units > Reagent_Pool (Pool_C).Made - Reagent_Pool (Pool_C).Required
          then
@@ -142,17 +142,17 @@ procedure December_14 is
               Reagent_Pool (Pool_C).Required + Units;
             Reagent_Pool (Pool_C).Made := Reagent_Pool (Pool_C).Made +
               Reagent_Pool (Pool_C).Modularity * Product_Factor;
+            -- Recursive call to manufacture the reagents required for "To_Make"
             For I in Iterate (Reaction (Reaction_C).Input_List) loop
                Manufacture (Reaction, Reagent_Pool, Element (I).Name,
                             Element (I).Quantity * Product_Factor);
             end loop; -- I in Iterate (Reaction (Reaction_C).Input_List)
          else
-            -- no more product to make use reagent pool
+            -- no more product to make use existing surplace in reagent pool
             Reagent_Pool (Pool_C).Required :=
               Reagent_Pool (Pool_C).Required + Units;
          end if; --  Units > Reagent_Pool (Pool_C).Made ...
       else
-         Pool_C := Find (Reagent_Pool, To_Make);
          Reagent_Pool (Pool_C).Required :=
            Reagent_Pool (Pool_C).Required + Units;
       end if; -- To_Make /= Ore
@@ -161,8 +161,9 @@ procedure December_14 is
    Reaction : Reactions.Map;
    Reagent_Pool : Reagent_Pools.Map;
    Pool_C : Reagent_Pools.Cursor;
-   Saved_Fuel : Positive;
-   Least_Ore : Positive := Positive'Last;
+   Part_Two_Ore : constant Long_Positive := 1000000000000;
+   Fuel_Estimate, Ore_Estimate, Required_Ore : Long_Positive;
+   Part_Two_Fuel : Long_Positive := 1;
 
 begin -- December_14
    Read_Input (Reaction);
@@ -170,18 +171,31 @@ begin -- December_14
    Manufacture (Reaction, Reagent_Pool, Fuel, 1);
    -- Make one unit of fuel
    Pool_C := Find (Reagent_Pool, Ore);
-   Put_Line ("Ore Required:" & Natural'Image (Reagent_Pool (Pool_C).Required));
-   for I in Positive range 1 .. 1000 loop
-      Clear (Reagent_Pool);
+   Put_Line ("Ore Required for one unit of fuel:" &
+               Long_Natural'Image (Reagent_Pool (Pool_C).Required));
+   Ore_Estimate := Reagent_Pool (Pool_C).Required;
+   Fuel_Estimate := Part_Two_Ore / Ore_Estimate;
+   -- First estimate, lots of wastage of intermediate reagents;
+   Create (Reaction, Reagent_Pool);
+   Manufacture (Reaction, Reagent_Pool, Fuel, Fuel_Estimate);
+   Pool_C := Find (Reagent_Pool, Ore);
+   Ore_Estimate := Reagent_Pool (Pool_C).Required;
+   Fuel_Estimate := Part_Two_Ore * Fuel_Estimate / Ore_Estimate;
+   -- Second estimate is allows a better estimate of Ore / Fuel for a large
+   -- large quantity of fuel, that is a lower percentage wastage of intermediate
+   -- reagents; The fuel estimate is guaranteed to below the actual value but
+   -- close enough to allow a single step approach in reasonable time.
+   -- For my input about 1400 iterations or a fraction of a second.
+   Required_Ore := Ore_Estimate;
+   while Part_Two_Ore > Required_Ore loop
       Create (Reaction, Reagent_Pool);
-      Manufacture (Reaction, Reagent_Pool, Fuel, I);
+      Manufacture (Reaction, Reagent_Pool, Fuel, Fuel_Estimate);
       Pool_C := Find (Reagent_Pool, Ore);
-      if Least_Ore > Reagent_Pool (Pool_C).Required / I then
-         Least_Ore := Reagent_Pool (Pool_C).Required / I;
-         Saved_Fuel := I;
-      elsif Least_Ore = Reagent_Pool (Pool_C).Required / I then
-         Put_Line ("Equal:" & Positive'Image (I));
-      end if;
-      Put_Line (Positive'Image (Least_Ore));
-   end loop; -- I in Positive 1 .. 100
+      Required_Ore := Reagent_Pool (Pool_C).Required;
+      if Part_Two_Ore > Required_Ore then
+         Part_Two_Fuel := Fuel_Estimate;
+      end if; -- Part_Two_Ore > Required_Ore
+      Fuel_Estimate := Fuel_Estimate + 1;
+   end loop; -- Part_Two_Ore > Required_Ore
+   Put_Line ("Part two fuel made:" & Long_Natural'Image (Part_Two_Fuel));
 end December_14;
