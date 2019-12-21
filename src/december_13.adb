@@ -9,6 +9,9 @@ procedure December_13 is
 
    Input_File_Name : constant String := "December_13.txt";
 
+   package Console_IO is new Ada.Text_IO.Integer_IO (Program_Store_Elements);
+   use Console_IO;
+
    type Coordinates is record
       X, Y : Program_Store_Elements := 0;
    end record; -- Coordinates;
@@ -37,7 +40,7 @@ procedure December_13 is
      Ada.Containers.Ordered_Maps (Coordinates, Tiles);
    use Screen_Maps;
 
-   package Screen is new NT_Console (80, 80);
+   package Screen is new NT_Console;
    use Screen;
 
    procedure Read_Input (Screen_Map : out Screen_Maps.Map) is
@@ -87,10 +90,7 @@ procedure December_13 is
             null;
          end Start_Reading;
          while not Finished loop
-            if Key_Available then
-               Ch := Get_Key;
-            else
-            end if; -- Key_Available
+            Ch := Get_Key;
             case Ch is
             when 'a' | 'A' =>
                Position := -1; -- Left
@@ -116,6 +116,7 @@ procedure December_13 is
       Finished : Boolean := False;
       X, Y, Score : Program_Store_Elements;
       Tile : Tiles;
+      Saved_Score : Program_Store_Elements := 0;
 
    begin -- Play_Game
       Arcade_Cabinet.Load_Program (Input_File_Name);
@@ -123,6 +124,7 @@ procedure December_13 is
       Arcade_Cabinet.Patch (0, 2);
       Arcade_Cabinet.Run_Program;
       Clear_Screen;
+      Set_Cursor (False);
       Joystick.Start_Reading;
       while not Finished loop
          begin -- Output Exception
@@ -141,33 +143,32 @@ procedure December_13 is
                case Tile is
                when Empty =>
                   Set_Background (Black);
-                  Put (' ');
                when Wall =>
                   Set_Background (Brown);
-                  Put (Program_Store_Elements'Image (Y ));
                when Block =>
                   Set_Background (Yellow);
-                  Put (' ');
                when Paddle =>
                   Set_Background (White);
-                  Put (' ');
                when Ball =>
                   Set_Background (Red);
-                  Put (' ');
-                  delay 0.4;
                end case; -- Tile
+               Put (' ');
             else
                Arcade_Cabinet.Receive_Output (Score);
-               Goto_XY (10, 0);
+               Goto_XY (0, 21);
                Set_Background (Brown);
                Put (Program_Store_Elements'Image (Score));
+               if Saved_Score < Score then
+                  Saved_Score := Score;
+               end if; -- Saved_Score < Score
             end if; -- not Finished
          end if; -- not Finished
       end loop; -- not Finished
    exception
       when others =>
-      Goto_XY (0, 30);
-      Put_Line ("Score:" & Program_Store_Elements'Image (Score));
+      Goto_XY (0, 21);
+      Put_Line ("Saved Score:" & Program_Store_Elements'Image (Saved_Score));
+      Set_Cursor (True);
    end Play_Game;
 
    Screen_Map : Screen_Maps.Map;
