@@ -9,7 +9,6 @@ package body Intercode_09 is
      Ada.Text_IO.Integer_IO (Program_Store_Elements);
    use Program_Store_IO;
 
-   subtype Addresses is Natural;
    subtype Instruction_Lengths is Addresses range 2 .. 4;
 
    Package Program_Stores is new
@@ -38,17 +37,18 @@ package body Intercode_09 is
       Close (Input_File);
    end Read_Input;
 
-   procedure Dump (Program_Store : in Program_Stores.Vector) is
+   procedure Dump (Program_Store : in Program_Stores.Vector;
+                   Trace_File : in File_Type) is
 
       package Address_IO is new Ada.Text_IO.Integer_IO (Addresses);
 
    begin -- Dump
-      New_Line;
+      New_Line (Trace_File);
       for I in Iterate (Program_Store) loop
-         Address_IO.Put (To_Index (I), 4);
-         Put (':');
-         Put (Program_Store (I), 6);
-         New_Line;
+         Address_IO.Put (Trace_File, To_Index (I), 4);
+         Put (Trace_File, ':');
+         Put (Trace_File, Program_Store (I), 6);
+         New_Line (Trace_File);
       end loop; -- I in Iterate (Program_Store)
    end Dump;
 
@@ -63,8 +63,8 @@ package body Intercode_09 is
       Relative : constant Address_Modes := 2; -- mode 2 relative
 
       Program_Store : Program_Stores.Vector;
-
       Base : Addresses := 0;
+      Trace_File : File_Type;
 
       function Read_Operand (Address : in Addresses;
                              Address_Mode : in Address_Modes;
@@ -83,7 +83,7 @@ package body Intercode_09 is
             if Addresses (Element (Program_Store, Address)) >
               Last_Index (Program_Store) then
                if Trace then
-                  Put (" Extension <" &
+                  Put (Trace_File," Extension <" &
                          Addresses'Image (Addresses (Element (Program_Store,
                          Address)) - Last_Index (Program_Store)) & "> ");
                end if; -- Trace
@@ -99,7 +99,7 @@ package body Intercode_09 is
                             Program_Store_Elements (Base)) >
               Last_Index (Program_Store) then
                if Trace then
-                  Put (" Extension <" &
+                  Put (Trace_File, " Extension <" &
                          Addresses'Image (
                          Addresses (Element (Program_Store, Address) +
                              Program_Store_Elements (Base)) -
@@ -115,8 +115,8 @@ package body Intercode_09 is
                            Program_Store_Elements (Base));
          end case; -- Address_Mode
          if Trace then
-            Put (" Read (" & Addresses'Image (Effective_Address) & "):" &
-                   Program_Store_Elements'Image
+            Put (Trace_File, " Read (" & Addresses'Image (Effective_Address) &
+                   "):" & Program_Store_Elements'Image
                    (Program_Store (Effective_Address)));
          end if; -- Trace
          return Program_Store (Effective_Address);
@@ -140,7 +140,7 @@ package body Intercode_09 is
             if Addresses (Element (Program_Store, Address)) >
               Last_Index (Program_Store) then
                if Trace then
-                  Put (" Extension <" &
+                  Put (Trace_File, " Extension <" &
                          Addresses'Image (Addresses (Element (Program_Store,
                          Address)) - Last_Index (Program_Store)) & "> ");
                end if; -- Trace
@@ -156,7 +156,7 @@ package body Intercode_09 is
                             Program_Store_Elements (Base)) >
               Last_Index (Program_Store) then
                if Trace then
-                  Put (" Extension <" &
+                  Put (Trace_File, " Extension <" &
                          Addresses'Image (
                          Addresses (Element (Program_Store, Address) +
                              Program_Store_Elements (Base)) -
@@ -172,8 +172,8 @@ package body Intercode_09 is
                              Program_Store_Elements (Base));
          end case; -- Address_Mode
          if Trace then
-            Put (" Write (" & Addresses'Image (Effective_Address) & "):" &
-                   Program_Store_Elements'Image (Data));
+            Put (Trace_File, " Write (" & Addresses'Image (Effective_Address) &
+                   "):" & Program_Store_Elements'Image (Data));
          end if; -- Trace
          Program_Store (Effective_Address) := Data;
       end Write;
@@ -196,24 +196,57 @@ package body Intercode_09 is
                Loaded := True;
             end Load_Program;
          or
+            accept Patch (Location : in Addresses;
+                          Value : in Program_Store_Elements) do
+               if Loaded then
+                  Program_Store (Location) := Value;
+               end if; -- Loaded
+               -- Do nothing if the program is not loaded
+            end Patch;
+         or
             accept Run_Program do
                Run := True;
             end Run_Program;
          or
-            accept Trace_On  do
+            accept Trace_On (Trace_Name : String := "Trace.txt") do
                Trace := True;
+               Create (Trace_File, Out_File, Trace_Name);
             end Trace_On;
          end Select;
       end loop; -- not Loaded or not Run
       if Trace then
-         Dump (Program_Store);
-         Put_Line ("Processor Started");
+         Dump (Program_Store, Trace_File);
+         Put_Line (Trace_File, "Processor Started");
       end if; -- Trace
       while Run loop
          if Trace then
-            Put ("(" & Addresses'Image (Program_Counter) & "):" &
+            Put (Trace_File, "(" & Addresses'Image (Program_Counter) & "):" &
                    Program_Store_Elements'Image
                    (Program_Store (Program_Counter)));
+            case Program_Store (Program_Counter) mod Op_Code_Mod is
+            when 1 =>
+               Put (Trace_File, " add ");
+            when 2 =>
+               Put (Trace_File, " multiply ");
+            when 3 =>
+               Put (Trace_File, " input ");
+            when 4 =>
+               Put (Trace_File, " output ");
+            when 5 =>
+               Put (Trace_File, " jump /= 0 ");
+            when 6 =>
+               Put (Trace_File, " jump = 0 ");
+            when 7 =>
+               Put (Trace_File, " test < ");
+            when 8 =>
+               Put (Trace_File, " test = ");
+            when 9 =>
+               Put (Trace_File, " adjust base ");
+            when 99 =>
+               Put (Trace_File, " halt ");
+            when others =>
+               Put (Trace_File, " Unknown Op Code ");
+            end case; -- Program_Store (Program_Counter)
          end if; -- Trace
          Jump := False;
          Operand_1 := Program_Counter + 1;
@@ -286,7 +319,8 @@ package body Intercode_09 is
             when 99 =>
                Run := False;
                if Trace then
-                  Put_Line ("Halted");
+                  Put_Line (Trace_File, " ** Halted **");
+                  Close (Trace_File);
                end if; -- Trace
             when others =>
                Assert (False, "Invalid Op Code");
@@ -297,14 +331,22 @@ package body Intercode_09 is
             Program_Counter := Program_Counter + Instruction_Length;
          end if; -- Jump
          if Trace then
-            New_Line;
+            New_Line (Trace_File);
          end if; -- Trace
       end loop; -- Run
    exception
       when others =>
-         Dump (Program_Store);
-         Put_Line ("Program Counter:" & Addresses'Image (Program_Counter));
-         Put_Line ("Base:" & Addresses'Image (Base));
+         if Trace then
+            Dump (Program_Store, Trace_File);
+            Put_Line (Trace_File, "Program Counter:" &
+                        Addresses'Image (Program_Counter));
+            Put_Line (Trace_File, "Base:" & Addresses'Image (Base));
+         else
+            Dump (Program_Store, Standard_Output);
+            Put_Line (Standard_Output, "Program Counter:"
+                      & Addresses'Image (Program_Counter));
+            Put_Line (Standard_Output,"Base:" & Addresses'Image (Base));
+         end if; -- Trace
          raise;
    end Processor;
 
