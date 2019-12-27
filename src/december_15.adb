@@ -1,8 +1,10 @@
 with Ada.Text_IO; use  Ada.Text_IO;
 with Ada.Assertions; use Ada.Assertions;
 with Ada.Containers; use Ada.Containers;
-with Intercode_09; use Intercode_09;
 with Ada.Containers.Ordered_Maps;
+with Ada.Containers.Synchronized_Queue_Interfaces;
+with Ada.Containers.Unbounded_Synchronized_Queues;
+with Intercode_09; use Intercode_09;
 
 procedure December_15 is
 
@@ -94,7 +96,7 @@ procedure December_15 is
             end if; -- X = 0 and Y = 0
          end loop; -- X in Integer range X_Min .. Y_Max
          New_Line;
-      end loop; -- in reverse Integer range Y_Min .. Y_Max
+      end loop; -- Y in Integer range Y_Min .. Y_Max
    end Display;
 
    Brain : Processor;
@@ -191,63 +193,79 @@ procedure December_15 is
    procedure Oxygen_Fill (Path_Map : in Path_Maps.Map;
                           Fill_Time : out Natural) is
 
-      procedure Find_Oxygen (Path_Map : in out Path_Maps.Map) is
+      procedure Find_Oxygen (Path_Map : in out Path_Maps.Map;
+                            Oxygen_Coordinate : out Coordinates) is
 
       begin -- Find_Oxygen
          for I in Iterate (Path_Map) loop
             if Path_Map (I).Droid_Response = Oxygen then
                Path_Map (I).Bread_Crumb := True;
+               Oxygen_Coordinate := Key (I);
             else
                Path_Map (I).Bread_Crumb := False;
             end if; -- Path_Map (I).Droid_Response = Oxygen
          end loop; -- I in Iterate (Path_Map)
       end Find_Oxygen;
 
-      Fill : Coordinates;
-      Filled : Boolean;
+      package OQI is new
+        Ada.Containers.Synchronized_Queue_Interfaces (Coordinates);
+
+      package Oxygen_Queues is new
+        Ada.Containers.Unbounded_Synchronized_Queues (OQI);
+
+      Oxygen_Queue : Oxygen_Queues.Queue;
+      Oxygen_Coordinate : Coordinates;
+      To_Fill : Count_Type;
+      Filled, Test : Coordinates;
       Current_Map : Path_Maps.Map := Copy (Path_Map);
-      Next_Map : Path_Maps.Map := Empty_Map;
 
       -- uses Bread_Crumb in Path_Element to indicate the presence of Oxygen.
-      -- Note the map is missing some elements that were unreachable but
-      -- since diagonal filling with oxygen is not permitted the coordinates
-      -- that are missing should never be tested as being adjacent to clear
-      -- elements. Potentially the procedure could be speeded up by remving
-      -- all wall elements; howeve additional testing would be required to
-      -- avoid accessing non existant coordinates;
 
    begin -- Oxygen_Fill
-      Find_Oxygen (Current_Map);
-      Next_Map := Copy (Current_Map);
+      Find_Oxygen (Current_Map, Oxygen_Coordinate);
+      Oxygen_Queue.Enqueue (Oxygen_Coordinate);
       Fill_Time := 0;
       loop -- loop until filled
-         Filled := True;
-         for I in Iterate (Current_Map) loop
-            if Current_Map (I).Droid_Response /= Wall then
-               Filled := Filled and Current_Map (I).Bread_Crumb;
-            end if; -- (Current_Map (I).Droid_Response /= Wall
-         end loop;
-         exit when Filled;
-         Fill_Time := Fill_Time + 1;
-         for I in Iterate (Current_Map) loop
-            if Current_Map (I).Droid_Response /= Wall and
-              Current_Map (I).Bread_Crumb then
-               -- This will fill some wall elements but they cannot fill
-               -- adjacent clear areas because they are wall. It will also fill
-               -- already filled areas; however it avoids additional tests.
-               Fill.X := Key (I).X;
-               Fill.Y := Key (I).Y + 1;
-               Next_Map (Fill).Bread_Crumb := True;
-               Fill.Y := Key (I).Y - 1;
-               Next_Map (Fill).Bread_Crumb := True;
-               Fill.Y := Key (I).Y;
-               Fill.X := Key (I).X + 1;
-               Next_Map (Fill).Bread_Crumb := True;
-               Fill.X := Key (I).X - 1;
-               Next_Map (Fill).Bread_Crumb := True;
-            end if; -- Current_Map (I).Droid_Response /= Wall and ...
-         end loop; -- I in Iterate (Current_Map)
-         Current_Map := Copy (Next_Map);
+         To_Fill := Oxygen_Queue.Current_Use;
+         -- retain the count of elements which were filled during the previous
+         -- cycle and hence need to be checked on this cycle.
+         exit when To_Fill = 0;
+         while To_Fill > 0 loop
+            Oxygen_Queue.Dequeue (Filled);
+            -- Test cells adjacent to the recently filled element
+            Test.X := Filled.X;
+            Test.Y := Filled.Y - 1;
+            if Current_Map (Test).Droid_Response /= Wall and then
+              not Current_Map (Test).Bread_Crumb then
+               Current_Map (Test).Bread_Crumb := True;
+               Oxygen_Queue.Enqueue (Test);
+            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
+            Test.Y := Filled.Y + 1;
+            if Current_Map (Test).Droid_Response /= Wall and then
+              not Current_Map (Test).Bread_Crumb then
+               Current_Map (Test).Bread_Crumb := True;
+               Oxygen_Queue.Enqueue (Test);
+            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
+            Test.Y := Filled.Y;
+            Test.X := Filled.X - 1;
+            if Current_Map (Test).Droid_Response /= Wall and then
+              not Current_Map (Test).Bread_Crumb then
+               Current_Map (Test).Bread_Crumb := True;
+               Oxygen_Queue.Enqueue (Test);
+            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
+            Test.X := Filled.X + 1;
+            if Current_Map (Test).Droid_Response /= Wall and then
+              not Current_Map (Test).Bread_Crumb then
+               Current_Map (Test).Bread_Crumb := True;
+               Oxygen_Queue.Enqueue (Test);
+            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
+               To_Fill := To_Fill - 1;
+         end loop; -- To_Fill > 0
+         if Oxygen_Queue.Current_Use > 0 then
+            -- Note when last filled element is tested there will be nothing
+            -- left in the queue, that is, everything is already full
+            Fill_Time := Fill_Time + 1;
+         end if; -- Oxygen_Queue.Current_Use > 0
       end loop; -- loop until filled
    end Oxygen_Fill;
 
