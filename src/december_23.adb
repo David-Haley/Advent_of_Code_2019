@@ -133,14 +133,13 @@ procedure December_23 is
 
       Packet, Previous : Packets;
       All_Idle, First_Match : Boolean := True;
-      Finished : Boolean := False;
 
    begin -- NAT
       Previous.Y := 0;
       NAT_Queue.Dequeue (Packet);
       Put_Line ("First NAT receive:" & " Y:" &
                   Program_Store_Elements'Image (Packet.Y));
-      loop -- Forever
+      while First_Match loop
          while NAT_Queue.Current_Use > 0 loop
             NAT_Queue.Dequeue (Packet);
          end loop; -- NAT_Queue.Current_Use > 0
@@ -162,7 +161,12 @@ procedure December_23 is
             -- delay desirable, posssibly essential to allow network traffic to
             -- finish before reading what is in the NAT Queue.
          end if; --  All_Idle;
-      end loop; -- Forever
+      end loop; -- First_Match
+      for A in Network_Addresses loop
+         abort Network_Array (A).NIC_Rx, Network_Array (A).NIC_Tx,
+           Network_Array (A).CPU;
+      end loop; -- A in Network_Addresses
+      abort NAT;
    end NAT;
 
 begin -- December_23
