@@ -166,7 +166,6 @@ procedure December_23 is
          abort Network_Array (A).NIC_Rx, Network_Array (A).NIC_Tx,
            Network_Array (A).CPU;
       end loop; -- A in Network_Addresses
-      abort NAT;
    end NAT;
 
 begin -- December_23
