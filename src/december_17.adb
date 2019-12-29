@@ -1,9 +1,14 @@
 with Ada.Text_IO; use Ada.Text_IO;
+with Ada.Text_IO.Unbounded_IO; use Ada.Text_IO.Unbounded_IO;
 with Ada.Characters.Latin_1; use Ada.Characters.Latin_1;
+with Ada.Strings; use Ada.Strings;
+with Ada.Strings.Maps; use Ada.Strings.Maps;
+with Ada.Strings.Maps.Constants; use Ada.Strings.Maps.Constants;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Assertions; use Ada.Assertions;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Vectors;
+with NT_Console;
 with Intercode_09; use Intercode_09;
 
 procedure December_17 is
@@ -63,9 +68,15 @@ procedure December_17 is
 
       type Scaffold_Arrays is array (X_Coordinates, Y_Coordinates) of Character;
 
+      subtype Function_Indices is Character range 'A' .. 'C';
+      type Robot_Functions is array (Function_Indices) of Unbounded_String;
+      type Robot_Programs is record
+         Main : Unbounded_String;
+         Robot_Function : Robot_Functions;
+      end record; -- Robot_Programs
+
       procedure Read_Input (Scaffold_Array : out Scaffold_Arrays) is
 
-         Input_File : File_Type;
          ASCII_System : Processor;
          ASCII_Out : Program_Store_Elements;
          Finished : Boolean := False;
@@ -96,7 +107,7 @@ procedure December_17 is
       end Read_Input;
 
       procedure Find_Path (Scaffold_Array : in Scaffold_Arrays;
-                           Path : Unbounded_String) is
+                           Path : out Unbounded_String) is
 
          type Directions is (Up, Right, Down, Left);
          type Turns is (Left, Right);
@@ -228,19 +239,22 @@ procedure December_17 is
             end case; -- Current_Direction
          end Move;
 
-         Robot_X :  X_Coordinates;
-         Robot_Y :  Y_Coordinates;
-         Robot_Dir : Directions;
-         Next_Turn : Turns;
-         Next_Steps : Natural;
-         No_Turn : Boolean;
          Turn_Table : constant array (Directions, Turns) of Directions :=
            (Up => (Left => Left, Right => Right),
             Right => (Left => Up, Right => Down),
             Down => (Left => Right, Right => Left),
             Left => (Left => Down, Right => Up));
 
+         Robot_X :  X_Coordinates;
+         Robot_Y :  Y_Coordinates;
+         Robot_Dir : Directions;
+         Next_Turn : Turns;
+         Next_Steps : Natural;
+         No_Turn : Boolean;
+         Number : Unbounded_String;
+
       begin -- Find_Path
+         Path := Null_Unbounded_String;
          Find_Robot (Scaffold_Array, Robot_X, Robot_Y, Robot_Dir);
          loop -- until end found
             Which_Turn (Scaffold_Array, Robot_Dir, Robot_X, Robot_Y, Next_Turn,
@@ -249,17 +263,137 @@ procedure December_17 is
             Robot_Dir := Turn_Table (Robot_Dir, Next_Turn);
             Next_Steps := Steps (Scaffold_Array, Robot_X, Robot_Y, Robot_Dir);
             Move (Robot_Dir, Next_Steps, Robot_X, Robot_Y);
-            Put_Line (X_Coordinates'Image (Robot_X) &
-                     Y_Coordinates'Image (Robot_Y) & ' ' &
-                     Directions'Image (Robot_Dir) & ' ' &
-                     Turns'Image (Next_Turn) & ' ' & Boolean'Image (No_Turn) &
-                        Natural'Image (Next_Steps));
+            if Length (Path) > 0 then
+               Path := Path & ",";
+            end if; -- Length (Path) > 0
+            case Next_Turn is
+            when Left =>
+               Path := Path & "L,";
+            when Right =>
+               Path := Path & "R,";
+            end case; -- Next_Turn
+            Number := To_Unbounded_String (Natural'Image (Next_Steps));
+            Trim (Number, Left);
+            Path := Path & Number;
          end loop; -- until end found
       end Find_Path;
+
+      procedure Split (Path : in Unbounded_String;
+                       Robot_Program : out Robot_Programs) is
+
+         Main_Set : constant Character_Set := To_Set ("ABC");
+         Function_Set : constant Character_Set := To_Set ("LR");
+         Delimiter : constant Character := ',';
+
+         Command_Length : constant Positive := 20;
+
+         Start_At, Function_Start, Function_End : Positive;
+         First, Last : Natural;
+         One_Character : String (1 .. 1);
+
+      begin -- Split
+         Robot_Program.Main := Path;
+         for F in Function_Indices loop
+            Start_At := 1;
+            Find_Token (Robot_Program.Main, Function_Set, Start_At, Inside,
+                        First, Last);
+            Last := First + Command_Length - 1;
+            if Index (Robot_Program.Main, Main_Set, First) < Last and
+              Index (Robot_Program.Main, Main_Set, First) /= 0 then
+               Last := Index (Robot_Program.Main, Main_Set, First) - 1;
+            end if; -- Index (Robot_Program.Main, Main_Set, First) < Last ...
+            Function_Start := First;
+            Function_End := Index (Robot_Program.Main, Decimal_Digit_Set, Last,
+                                   Inside, Backward);
+            Robot_Program.Robot_Function (F) :=
+              Unbounded_Slice (Robot_Program.Main, Function_Start,
+                               Function_End);
+            Start_At := Function_Start;
+            One_Character (1) := F;
+            loop -- remove instance Robot_Program.Robot_Function (F) ...
+               First := Index (Robot_Program.Main,
+                              To_String (Robot_Program.Robot_Function (F)),
+                              Start_At);
+               exit when First = 0;
+               Delete (Robot_Program.Main, First,
+                       First + Length (Robot_Program.Robot_Function (F)) - 1);
+               Insert (Robot_Program.Main, First, One_Character);
+            end loop; -- remove instance Robot_Program.Robot_Function (F) ...
+        end loop; -- F in Function_Indices
+      end Split;
+
+      procedure Warn_Robots (Robot_Program : in Robot_Programs) is
+
+         ASCII_System : Processor;
+
+         task Display is
+         end Display;
+
+         task body Display is
+
+            package Screen is new NT_Console (X_Size, Y_Size + 2);
+            use Screen;
+
+            Finished : Boolean := False;
+            Data : Program_Store_Elements;
+            Previous_Data : Program_Store_Elements := 0;
+
+         begin -- Display
+            Clear_Screen;
+            Goto_XY (0, 0);
+            while not Finished loop
+               begin -- Input exception block
+                  ASCII_System.Receive_Output (Data);
+               exception
+                  when Tasking_Error =>
+                     Finished := True;
+                  when others =>
+                     raise;
+               end; -- Input exception block
+               if not Finished then
+                  if Data > 255 then
+                     Goto_XY (0, Y_Size + 1);
+                     Put_Line ("Part two Dust:" & Program_Store_Elements'Image (Data));
+                  elsif Data = Program_Store_Elements (Character'Pos (LF)) then
+                     New_Line;
+                     if Previous_Data = Data then
+                        -- two consecutive LFs indicates end of display
+                        Goto_XY (0, 0);
+                     end if; -- Previous_Data = Data
+                  else
+                     Put (Character'Val (Data));
+                  end if; -- Data > 255
+               end if; -- not Finished
+               Previous_Data := Data;
+            end loop; -- not Finished
+         end Display;
+
+         procedure Send_Command (Command : in String) is
+
+         begin -- Send_Command
+            for I in Positive range 1 .. Command'Length loop
+               ASCII_System.Send_Input
+                 (Program_Store_Elements (Character'Pos (Command (I))));
+            end loop; -- I Positive in range 1 .. Command'Length
+            ASCII_System.Send_Input
+              (Program_Store_Elements (Character'Pos (LF)));
+         end Send_Command;
+
+      begin -- Warn_Robots
+         ASCII_System.Load_Program (Input_File_Name);
+         ASCII_System.Patch (0, 2);
+         ASCII_System.Run_Program;
+         Send_Command (To_String (Robot_Program.Main));
+         for F in Function_Indices loop
+            Send_Command (To_String (Robot_Program.Robot_Function (F)));
+         end loop;
+         Send_Command ("y");
+      end Warn_Robots;
 
       Scaffold_Array : Scaffold_Arrays;
       Sum : Natural := 0;
       Path : Unbounded_String;
+      Robot_Program : Robot_Programs;
 
    begin --Solve
       Read_Input (Scaffold_Array);
@@ -274,14 +408,15 @@ procedure December_17 is
             end if; -- is an intersection
             end loop; -- X in X_Coordinates
          end loop; -- Y in Y_Coordinates
-      Put_Line ("Sum:" & Natural'Image (Sum));
       Find_Path (Scaffold_Array, Path);
+      Split (Path, Robot_Program);
+      Warn_Robots (Robot_Program);
+      Put_Line ("Part one Sum:" & Natural'Image (Sum));
    end Solve;
 
    X_Size, Y_Size : Natural;
 
 begin -- December_17
    Find_Size (X_Size, Y_Size);
-   Put_Line ("Limits" & Natural'Image (X_Size) & Natural'Image (Y_Size));
    Solve (X_Size, Y_Size);
 end December_17;
