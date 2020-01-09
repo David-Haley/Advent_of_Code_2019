@@ -207,73 +207,63 @@ procedure December_15 is
          end loop; -- I in Iterate (Path_Map)
       end Find_Oxygen;
 
+      type Queue_Element is record
+         Coordinate : Coordinates;
+         Fill_Time : Natural; -- Distance from oxigen is a proxy for time
+      end record; -- Queue_Element
+
       package OQI is new
-        Ada.Containers.Synchronized_Queue_Interfaces (Coordinates);
+        Ada.Containers.Synchronized_Queue_Interfaces (Queue_Element);
 
       package Oxygen_Queues is new
         Ada.Containers.Unbounded_Synchronized_Queues (OQI);
 
       Oxygen_Queue : Oxygen_Queues.Queue;
       Oxygen_Coordinate : Coordinates;
-      To_Fill : Count_Type;
-      Filled, Test : Coordinates;
+      Filled, Test : Queue_Element;
       Current_Map : Path_Maps.Map := Copy (Path_Map);
 
       -- uses Bread_Crumb in Path_Element to indicate the presence of Oxygen.
 
    begin -- Oxygen_Fill
       Find_Oxygen (Current_Map, Oxygen_Coordinate);
-      Oxygen_Queue.Enqueue (Oxygen_Coordinate);
-      Fill_Time := 0;
-      loop -- loop until filled
-         To_Fill := Oxygen_Queue.Current_Use;
-         -- retain the count of elements which were filled during the previous
-         -- cycle and hence need to be checked on this cycle.
-         exit when To_Fill = 0;
-         while To_Fill > 0 loop
-            Oxygen_Queue.Dequeue (Filled);
-            -- Test cells adjacent to the recently filled element
-            Test.X := Filled.X;
-            Test.Y := Filled.Y - 1;
-            if Current_Map (Test).Droid_Response /= Wall and then
-              not Current_Map (Test).Bread_Crumb then
-               Current_Map (Test).Bread_Crumb := True;
-               Oxygen_Queue.Enqueue (Test);
-            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
-            Test.Y := Filled.Y + 1;
-            if Current_Map (Test).Droid_Response /= Wall and then
-              not Current_Map (Test).Bread_Crumb then
-               Current_Map (Test).Bread_Crumb := True;
-               Oxygen_Queue.Enqueue (Test);
-            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
-            Test.Y := Filled.Y;
-            Test.X := Filled.X - 1;
-            if Current_Map (Test).Droid_Response /= Wall and then
-              not Current_Map (Test).Bread_Crumb then
-               Current_Map (Test).Bread_Crumb := True;
-               Oxygen_Queue.Enqueue (Test);
-            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
-            Test.X := Filled.X + 1;
-            if Current_Map (Test).Droid_Response /= Wall and then
-              not Current_Map (Test).Bread_Crumb then
-               Current_Map (Test).Bread_Crumb := True;
-               Oxygen_Queue.Enqueue (Test);
-            end if; --  Current_Map (Test).Droid_Response /= Wall and then ...
-               To_Fill := To_Fill - 1;
-         end loop; -- To_Fill > 0
-         if Oxygen_Queue.Current_Use > 0 then
-            -- Note when last filled element is tested there will be nothing
-            -- left in the queue, that is, everything is already full
-            Fill_Time := Fill_Time + 1;
-         end if; -- Oxygen_Queue.Current_Use > 0
-      end loop; -- loop until filled
+      Oxygen_Queue.Enqueue ((Oxygen_Coordinate, 0));
+      while Oxygen_Queue.Current_Use > 0 loop
+         Oxygen_Queue.Dequeue (Filled);
+         Current_Map (Filled.Coordinate).Bread_Crumb := True;
+         -- Test cells adjacent to the recently filled element
+         Test.Coordinate.X := Filled.Coordinate.X;
+         Test.Coordinate.Y := Filled.Coordinate.Y - 1;
+         Test.Fill_Time := Filled.Fill_Time + 1;
+         if Current_Map (Test.Coordinate).Droid_Response /= Wall and then
+           not Current_Map (Test.Coordinate).Bread_Crumb then
+            Oxygen_Queue.Enqueue (Test);
+         end if; -- Current_Map (Test.Coordinate).Droid_Response /= Wall ...
+         Test.Coordinate.Y := Filled.Coordinate.Y + 1;
+         if Current_Map (Test.Coordinate).Droid_Response /= Wall and then
+           not Current_Map (Test.Coordinate).Bread_Crumb then
+            Oxygen_Queue.Enqueue (Test);
+         end if; -- Current_Map (Test.Coordinate).Droid_Response /= Wall  ...
+         Test.Coordinate.Y := Filled.Coordinate.Y;
+         Test.Coordinate.X := Filled.Coordinate.X - 1;
+         if Current_Map (Test.Coordinate).Droid_Response /= Wall and then
+           not Current_Map (Test.Coordinate).Bread_Crumb then
+            Oxygen_Queue.Enqueue (Test);
+         end if; -- Current_Map (Test.Coordinate).Droid_Response /= Wall ...
+         Test.Coordinate.X := Filled.Coordinate.X + 1;
+         if Current_Map (Test.Coordinate).Droid_Response /= Wall and then
+           not Current_Map (Test.Coordinate).Bread_Crumb then
+            Oxygen_Queue.Enqueue (Test);
+         end if; -- Current_Map (Test.Coordinate).Droid_Response /= Wall ...
+      end loop; --  Oxygen_Queue.Current_Use > 0
+      Fill_Time := Filled.Fill_Time;
    end Oxygen_Fill;
 
-   Path_Element : Path_Elements := (Droid_Response => Clear,
-                                   Bread_Crumb => True);
-   Coordinate : constant Coordinates := (0, 0);
-   Distance : Natural := 0;
+   Start_Element : constant Path_Elements := (Droid_Response => Clear,
+                                              Bread_Crumb => True);
+   Start_Coordinate : constant Coordinates := (X => 0, Y => 0);
    Shortest_Distance : Natural := Natural'Last;
+   -- Starting conditions for Explore
    Fill_Time : Natural;
    Path_Map : Path_Maps.Map;
 
@@ -281,8 +271,8 @@ begin -- December_15
    Path_Map := Path_Maps.Empty_Map;
    Brain.Load_Program ("December_15.txt");
    Brain.Run_Program;
-   Include (Path_Map, Coordinate, Path_Element);
-   Explore (Coordinate, Distance, Shortest_Distance, Path_Map);
+   Include (Path_Map, Start_Coordinate, Start_Element);
+   Explore (Start_Coordinate, 0, Shortest_Distance, Path_Map);
    Display (Path_Map);
    Put_Line ("Shortest distance to Oxygen:" &
                Natural'Image (Shortest_Distance));
