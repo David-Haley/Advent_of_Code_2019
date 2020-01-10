@@ -2,6 +2,8 @@ with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Assertions; use Ada.Assertions;
 with Ada.Containers; use Ada.Containers;
 with Ada.Containers.Ordered_Maps;
+with Ada.Containers.Synchronized_Queue_Interfaces;
+with Ada.Containers.Unbounded_Synchronized_Queues;
 with Intercode_09; use Intercode_09;
 with NT_Console;
 
@@ -53,7 +55,6 @@ procedure December_13 is
 
    begin -- Read_Input
       Arcade_Cabinet.Load_Program (Input_File_Name);
---        Arcade_Cabinet.Trace_On;
       Arcade_Cabinet.Run_Program;
       Screen_Map := Screen_Maps.Empty_Map;
       while not Finished loop
@@ -75,32 +76,51 @@ procedure December_13 is
 
       Arcade_Cabinet : Processor;
 
-      task Joystick is
-         entry Start_Reading;
-      end Joystick;
+      type Auto_Elements is record
+         X, Y, Tile : Program_Store_Elements;
+      end record; -- Auto_Elements
 
-      task body Joystick is
+      package AQI is new
+        Ada.Containers.Synchronized_Queue_Interfaces (Auto_Elements);
+      package Auto_Queues is new
+        Ada.Containers.Unbounded_Synchronized_Queues (AQI);
 
+      Auto_Queue : Auto_Queues.Queue;
+
+      task Auto_Play is
+      end Auto_Play;
+
+      task body Auto_Play is
+
+         Left : constant Program_Store_Elements := -1;
+         Neutral : constant Program_Store_Elements := 0;
+         Right : constant Program_Store_Elements := 1;
          Finished : Boolean := False;
-         Ch : Character := 's';
-         Position : Program_Store_Elements;
+         Position, Paddle_X, Ball_X : Program_Store_Elements;
+         Auto_Element : Auto_Elements;
 
-      begin --
-         accept Start_Reading  do
-            null;
-         end Start_Reading;
+      begin -- Auto_Play
          while not Finished loop
-            Ch := Get_Key;
-            case Ch is
-            when 'a' | 'A' =>
-               Position := -1; -- Left
-            when 's' | 'S' =>
-               Position := 0; -- Neutral
-            when 'd' | 'D' =>
-               Position := 1; -- Right
-            when others =>
-               null;
-            end case; -- Ch
+            delay 0.05;
+            -- delay to make auto play viewable;
+            while Auto_Queue.Current_Use > 0 loop
+               Auto_Queue.Dequeue (Auto_Element);
+               case Auto_Element.Tile is
+                  when Ball =>
+                     Ball_X := Auto_Element.X;
+                  when Paddle =>
+                     Paddle_X := Auto_Element.X;
+                  when others =>
+                     null;
+               end case; -- Auto_Element.Tile
+            end loop; -- Auto_Queue.Current_Use > 0
+            if Ball_X > Paddle_X then
+               Position := Right;
+            elsif Ball_X < Paddle_X then
+               Position := Left;
+            else
+               Position := Neutral;
+            end if; -- Ball_X > Paddle_X
             begin -- Input exception block
                Arcade_Cabinet.Send_Input (Position);
             exception
@@ -110,25 +130,25 @@ procedure December_13 is
                   raise;
             end; -- Input exception block
          end loop; -- not Finished
-      end Joystick;
+      end Auto_Play;
 
       Input_File : File_Type;
       Finished : Boolean := False;
       X, Y, Score : Program_Store_Elements;
       Tile : Tiles;
       Saved_Score : Program_Store_Elements := 0;
+      Auto_Element : Auto_Elements;
 
    begin -- Play_Game
       Arcade_Cabinet.Load_Program (Input_File_Name);
---        Arcade_Cabinet.Trace_On ("Trace_13_2.txt");
       Arcade_Cabinet.Patch (0, 2);
       Arcade_Cabinet.Run_Program;
       Clear_Screen;
       Set_Cursor (False);
-      Joystick.Start_Reading;
       while not Finished loop
          begin -- Output Exception
             Arcade_Cabinet.Receive_Output (X);
+            Auto_Element.X := X;
          exception
             when Tasking_Error =>
                Finished := True;
@@ -136,9 +156,12 @@ procedure December_13 is
                   raise;
          end; -- Output Exception
          Arcade_Cabinet.Receive_Output (Y);
+         Auto_Element.Y := Y;
          If not Finished then
             if X >= 0 then
                Arcade_Cabinet.Receive_Output (Tile);
+               Auto_Element.Tile := Tile;
+               Auto_Queue.Enqueue (Auto_Element);
                Goto_XY (X_Pos (X), Y_Pos (Y));
                case Tile is
                when Empty =>
@@ -155,7 +178,7 @@ procedure December_13 is
                Put (' ');
             else
                Arcade_Cabinet.Receive_Output (Score);
-               Goto_XY (0, 21);
+               Goto_XY (1, 0);
                Set_Background (Brown);
                Put (Program_Store_Elements'Image (Score));
                if Saved_Score < Score then
@@ -166,9 +189,8 @@ procedure December_13 is
       end loop; -- not Finished
    exception
       when others =>
-      Goto_XY (0, 21);
-      Put_Line ("Saved Score:" & Program_Store_Elements'Image (Saved_Score));
-      Set_Cursor (True);
+         Set_Background (Black);
+         Set_Cursor (True);
    end Play_Game;
 
    Screen_Map : Screen_Maps.Map;
@@ -181,6 +203,8 @@ begin -- December_13
          Count := Count + 1;
       end if; -- Screen_Map (I) = Block
    end loop; -- I in Iterate (Screen_Map)
-   Put_Line ("Block Tiles:" & Natural'Image (Count));
    Play_Game;
+   Goto_XY (0, 21);
+   Put_Line ("Part one block tiles:" & Natural'Image (Count));
+   Goto_XY (0, 22); -- Place command prompt outside of game area
 end December_13;
