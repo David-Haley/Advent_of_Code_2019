@@ -1,3 +1,8 @@
+-- Revised to remove fixed size array for levels in part two. A map has been
+-- used this probably increases acces time however by managing the limits over
+-- which calculations have to be pergormed the speed may not be degraded much.
+-- The benefit is the number of iterations could be increased without any other
+-- chances being required.
 with Ada.Text_IO; use Ada.Text_IO;
 with Ada.Strings; use Ada.Strings;
 with Ada.Strings.Maps; use Ada.Strings.Maps;
@@ -14,6 +19,7 @@ procedure December_24 is
 
    subtype Coordinates is Natural range 1 .. 5;
    type Grids is array (Coordinates, Coordinates) of Boolean;
+   Empty_Grid : constant Grids := (others => (others => False));
 
    procedure Read_Grid (Grid : out Grids) is
 
@@ -141,17 +147,18 @@ procedure December_24 is
 
    procedure Solve_Part_Two is
 
-      subtype Levels is Integer range -201 .. 201;
-      -- Assumed to be sufficient for 200 iterations, because propagation away
-      -- from level 0 should only be one level per iteration at most.
-      type Recursive_Grids is array (Levels) of Grids;
+      subtype Levels is Integer;
+      package Recursive_Grids is new
+        Ada.Containers.Ordered_Maps (Levels, Grids);
+      use Recursive_Grids;
 
-      procedure Update_Grid (Current_Grid : in Recursive_Grids;
-                             Next_Grid : out Recursive_Grids) is
+      procedure Update_Grid (Current_Grid : in out Recursive_Grids.Map;
+                             Bottom_Level, Top_Level : in out Levels;
+                             Next_Grid : in out Recursive_Grids.Map) is
 
          subtype Neighbour_Counts is Natural range 0 .. 8;
 
-         function Bug_Neighbours (Current_Grid : in Recursive_Grids;
+         function Bug_Neighbours (Current_Grid : in Recursive_Grids.Map;
                                   X, Y : in Coordinates;
                                   Z : in Levels)
                                   return Neighbour_Counts is
@@ -225,8 +232,23 @@ procedure December_24 is
          end Bug_Neighbours;
 
       begin -- Update_Grid
-         for Z in Levels range Levels'First + 1 .. Levels'Last - 1 loop
-            -- Levels'First and Levels'Last are read but not written.
+         -- create outer levels for neighbour counts byond existing limits
+         Bottom_Level := Bottom_Level - 1;
+         if First_Key (Current_Grid) > Bottom_Level then
+            Include (Current_Grid, Bottom_Level, Empty_Grid);
+         end if; -- First_Key (Current_Grid) > Bottom_Level
+         if First_Key (Next_Grid) > Bottom_Level then
+            Include (Next_Grid, Bottom_Level , Empty_Grid);
+         end if; -- First_Key (Next_Grid) > Bottom_Level
+         Top_Level := Top_Level + 1;
+         if Last_Key (Current_Grid) < Top_Level then
+            Include (Current_Grid, Top_Level, Empty_Grid);
+         end if; -- Last_Key (Current_Grid) < Top_Level
+         if Last_Key (Next_Grid) < Top_Level then
+            Include (Next_Grid, Top_Level, Empty_Grid);
+         end if; -- Last_Key (Next_Grid) < Top_Level
+         for Z in Levels range Bottom_Level + 1 .. Top_Level - 1 loop
+            -- note the outer levels are only read not written
             for Y in Coordinates loop
                for X in Coordinates loop
                   if X /= 3 or Y /= 3 then
@@ -241,15 +263,25 @@ procedure December_24 is
                   end if; -- X /= 3 or Y /= 3
                end loop; -- X in Coordinates
             end loop; -- Y in Coordinates
-         end loop; -- Z in Levels range Levels'First + 1 .. Levels'Last - 1
+         end loop; -- Z in Levels range Bottom_Level + 1 .. Top_Level - 1
+         -- adjust the range to be evaluated if there are no bugs in the next
+         -- to outer levels. The outer levels will never contain bugs;
+         if Next_Grid (Bottom_Level + 1) = Empty_Grid then
+            Bottom_Level := Bottom_Level + 1;
+         end if; -- Next_Grid (Bottom_Level) = Empty_Grid
+         if Next_Grid (Top_Level - 1) = Empty_Grid then
+            Top_Level := Top_Level - 1;
+         end if; -- Next_Grid (Top_Level) = Empty_Grid
       end Update_Grid;
 
-      function Count_Bugs (Current_Grid : in Recursive_Grids) return Natural is
+      function Count_Bugs (Current_Grid : in Recursive_Grids.Map;
+                           Bottom_Level, Top_Level : in Levels)
+                           return Natural is
 
          Count : Natural := 0;
 
       begin -- Count_Bugs
-         for Z in Levels loop
+         for Z in Levels range Bottom_Level .. Top_Level loop
             for Y in Coordinates loop
                for X in Coordinates loop
                   if Current_Grid (Z) (X, Y) then
@@ -261,17 +293,24 @@ procedure December_24 is
          return Count;
       end Count_Bugs;
 
-      Current_Grid, Next_Grid : Recursive_Grids :=
-        (others => (others => (others => False)));
+      Current_Grid, Next_Grid : Recursive_Grids.Map := Empty_Map;
+      Bottom_Level : Levels := -1;
+      Top_Level : Levels := 1;
 
    begin -- Solve_Part_Two
+      -- create levels -2 .. 2 to allow levels -1 to 1 to be evaluated
+      for I in Integer range -2 .. 2 loop
+         Include (Current_Grid, I, Empty_Grid);
+      end loop;
+      Next_Grid := Copy (Current_Grid);
       Read_Grid (Current_Grid (0));
       for I in Positive range 1 .. 200 loop
-         Update_Grid (Current_Grid, Next_Grid);
-         Current_Grid := Next_Grid;
+         Update_Grid (Current_Grid, Bottom_Level, Top_Level, Next_Grid);
+         Current_Grid := Copy (Next_Grid);
       end loop; -- I in Positive range 1 to 10
       Put_Line ("Part two bug count:" &
-                  Natural'Image (Count_Bugs (Current_Grid)));
+                  Natural'Image (Count_Bugs (Current_Grid,
+                  Bottom_Level, Top_Level)));
    end Solve_Part_Two;
 
 begin -- December_18
